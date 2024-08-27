@@ -2,6 +2,7 @@ package com.example.custom_dns;
 
 import com.example.custom_dns.DTO.DnsData;
 import com.example.custom_dns.DTO.DnsHeader;
+import com.example.custom_dns.DTO.DnsHeaderFlags;
 import com.example.custom_dns.DTO.DnsQuestion;
 
 import java.net.DatagramPacket;
@@ -9,6 +10,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DnsExtractor {
+    private static final int QR_MASK = 0x8000;
+    private static final int OPCODE_MASK = 0x7800;
+    private static final int AA_MASK = 0x0400;
+    private static final int TC_MASK = 0x0200;
+    private static final int RD_MASK = 0x0100;
+    private static final int RA_MASK = 0x0080;
+    private static final int Z_MASK = 0x0070;
+    private static final int RCODE_MASK = 0x000F;
+
     public static DnsData extractData(DatagramPacket datagramPacket) {
         final byte[] a = datagramPacket.getData();
 
@@ -21,7 +31,7 @@ public class DnsExtractor {
 
         DnsHeader dnsHeader = DnsHeader.builder()
                 .id(id)
-                .flags(flags)
+                .dnsHeaderFlags(extractDnsHeaderFlags(flags))
                 .questionsCount(qdCount)
                 .answersCount(anCount)
                 .nsCount(nsCount)
@@ -56,5 +66,49 @@ public class DnsExtractor {
                 .dnsHeader(dnsHeader)
                 .dnsQuestionList(dnsQuestionList)
                 .build();
+    }
+
+    public static DnsHeaderFlags extractDnsHeaderFlags(short flags) {
+        boolean qr = (flags & QR_MASK) != 0;
+        int opcode = (flags & OPCODE_MASK) >> 11;
+        boolean aa = (flags & AA_MASK) != 0;
+        boolean tc = (flags & TC_MASK) != 0;
+        boolean rd = (flags & RD_MASK) != 0;
+        boolean ra = (flags & RA_MASK) != 0;
+        int z = (flags & Z_MASK) >> 4;
+        int rcode = (flags & RCODE_MASK);
+        return DnsHeaderFlags.builder()
+                .queryResponse(qr)
+                .opcode(opcode)
+                .aa(aa)
+                .tc(tc)
+                .recursionRequired(rd)
+                .recursionAvailable(ra)
+                .z(z)
+                .rcode(rcode)
+                .build();
+    }
+
+    public static short makeDnsHeaderFlags(DnsHeaderFlags dnsHeaderFlags) {
+        short flags = 0;
+        if (dnsHeaderFlags.isQueryResponse()) {
+            flags |= (short) QR_MASK;
+        }
+        flags |= (short) ((dnsHeaderFlags.getOpcode() << 11) & OPCODE_MASK);
+        if (dnsHeaderFlags.isAa()) {
+            flags |= AA_MASK;
+        }
+        if (dnsHeaderFlags.isTc()) {
+            flags |= TC_MASK;
+        }
+        if (dnsHeaderFlags.isRecursionRequired()) {
+            flags |= RD_MASK;
+        }
+        if (dnsHeaderFlags.isRecursionAvailable()) {
+            flags |= RA_MASK;
+        }
+        flags |= (short) ((dnsHeaderFlags.getZ() << 4) & Z_MASK);
+        flags |= (short) (dnsHeaderFlags.getRcode() & RCODE_MASK);
+        return flags;
     }
 }
