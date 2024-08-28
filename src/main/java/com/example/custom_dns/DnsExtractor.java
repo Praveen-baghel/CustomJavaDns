@@ -82,7 +82,7 @@ public class DnsExtractor {
                 .opcode(opcode)
                 .aa(aa)
                 .tc(tc)
-                .recursionRequired(rd)
+                .recursionDesired(rd)
                 .recursionAvailable(ra)
                 .z(z)
                 .rcode(rcode)
@@ -101,7 +101,7 @@ public class DnsExtractor {
         if (dnsHeaderFlags.isTc()) {
             flags |= TC_MASK;
         }
-        if (dnsHeaderFlags.isRecursionRequired()) {
+        if (dnsHeaderFlags.isRecursionDesired()) {
             flags |= RD_MASK;
         }
         if (dnsHeaderFlags.isRecursionAvailable()) {

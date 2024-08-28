@@ -15,7 +15,7 @@ public class DnsHeaderFlags {
     int opcode;
     boolean aa;
     boolean tc;
-    boolean recursionRequired;
+    boolean recursionDesired;
     boolean recursionAvailable;
     int z;
     int rcode;
