@@ -51,10 +51,10 @@ public class DnsExtractor {
             short qType = (short) ((a[index++] << 8) | (a[index++] & 0xFF));
             short qClass = (short) ((a[index++] << 8) | (a[index++] & 0xFF));
 
-            System.out.println("Question " + (i + 1) + ":");
-            System.out.println("  Domain: " + domainName);
-            System.out.println("  Type: " + qType);
-            System.out.println("  Class: " + qClass);
+//            System.out.println("Question " + (i + 1) + ":");
+//            System.out.println("  Domain: " + domainName);
+//            System.out.println("  Type: " + qType);
+//            System.out.println("  Class: " + qClass);
 
             dnsQuestionList.add(DnsQuestion.builder()
                     .domainName(domainName.toString())
@@ -126,12 +126,12 @@ public class DnsExtractor {
                     rDataString = null;
             }
 
-            System.out.println("Answer Name: " + domainName);
-            System.out.println("Type: " + type);
-            System.out.println("Class: " + recordClass);
-            System.out.println("TTL: " + ttl);
-            System.out.println("Data Length: " + dataLength);
-            System.out.println("RDATA: " + rDataString);
+//            System.out.println("Answer Name: " + domainName);
+//            System.out.println("Type: " + type);
+//            System.out.println("Class: " + recordClass);
+//            System.out.println("TTL: " + ttl);
+//            System.out.println("Data Length: " + dataLength);
+//            System.out.println("RDATA: " + rDataString);
             dnsAnswerList.add(DnsAnswer.builder()
                     .domainName(domainName)
                     .answerType((short) type)

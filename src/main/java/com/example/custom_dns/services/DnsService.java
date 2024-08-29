@@ -60,8 +60,6 @@ public class DnsService {
                 responsePacket = new DatagramPacket(bufResponse, bufResponse.length);
                 forwardSocket.receive(responsePacket); // Receive response from upstream DNS server
             }
-
-            System.out.println(Arrays.toString(responsePacket.getData()));
             // save records in database
             saveRecords(responsePacket);
             return responsePacket.getData();
