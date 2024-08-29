@@ -5,14 +5,16 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.List;
-
-@Data
 @Builder
-@NoArgsConstructor
+@Data
 @AllArgsConstructor
-public class DnsData {
-    DnsHeader dnsHeader;
-    List<DnsQuestion> dnsQuestionList;
-    List<DnsAnswer> dnsAnswerList;
+@NoArgsConstructor
+public class DnsAnswer {
+    String domainName;
+    short answerType;
+    short answerClass;
+    short ttl;
+    short dataLength;
+    String rData;
 }
+

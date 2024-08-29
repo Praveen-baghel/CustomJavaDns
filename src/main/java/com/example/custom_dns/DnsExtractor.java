@@ -1,12 +1,10 @@
 package com.example.custom_dns;
 
-import com.example.custom_dns.DTO.DnsData;
-import com.example.custom_dns.DTO.DnsHeader;
-import com.example.custom_dns.DTO.DnsHeaderFlags;
-import com.example.custom_dns.DTO.DnsQuestion;
+import com.example.custom_dns.DTO.*;
 
 import java.net.DatagramPacket;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class DnsExtractor {
@@ -52,7 +50,7 @@ public class DnsExtractor {
             short qClass = (short) ((a[index++] << 8) | (a[index++] & 0xFF));
 
             System.out.println("Question " + (i + 1) + ":");
-            System.out.println("  Domain: " + domainName.toString());
+            System.out.println("  Domain: " + domainName);
             System.out.println("  Type: " + qType);
             System.out.println("  Class: " + qClass);
 
@@ -62,9 +60,71 @@ public class DnsExtractor {
                     .questionType(qType)
                     .build());
         }
+
+//        List<DnsAnswer> dnsAnswerList = new ArrayList<>();
+//        for (int i = 0; i < anCount; i++) {
+//            String answerName = parseDomainName(a, index);
+//            index += answerName.length() + 2; // Move index after domain name and terminating 0
+//
+//            // Parse the type, class, TTL, and data length
+//            int type = (a[index] << 8) | (a[index + 1] & 0xFF);
+//            int recordClass = (a[index + 2] << 8) | (a[index + 3] & 0xFF);
+//            int ttl = ((a[index + 4] << 24) | (a[index + 5] << 16) |
+//                    (a[index + 6] << 8) | (a[index + 7] & 0xFF));
+//            int dataLength = (a[index + 8] << 8) | (a[index + 9] & 0xFF);
+//            index += 10; // Move index after the header of the resource record
+//
+//            // Extract RDATA
+//            byte[] rData = Arrays.copyOfRange(a, index, index + dataLength);
+//            index += dataLength; // Move index after the RDATA
+//
+//            // Convert RDATA to string based on the type
+//            String rDataString;
+//            switch (type) {
+//                case 1: // A Record (IPv4)
+//                    rDataString = String.format("%d.%d.%d.%d", rData[0] & 0xFF, rData[1] & 0xFF, rData[2] & 0xFF, rData[3] & 0xFF);
+//                    break;
+//                case 28: // AAAA Record (IPv6)
+//                    StringBuilder sb = new StringBuilder();
+//                    for (int j = 0; j < rData.length; j += 2) {
+//                        sb.append(String.format("%02x", rData[j] & 0xFF));
+//                        sb.append(String.format("%02x", rData[j + 1] & 0xFF));
+//                        if (j < rData.length - 2) sb.append(":");
+//                    }
+//                    rDataString = sb.toString();
+//                    break;
+//                case 5: // CNAME Record
+//                    rDataString = parseDomainName(rData, 0);
+//                    break;
+//                case 2: // NS Record
+//                    rDataString = parseDomainName(rData, 0);
+//                    break;
+//                case 16: // TXT Record
+//                    rDataString = new String(rData, 1, rData[0] & 0xFF); // First byte is length of the text
+//                    break;
+//                default:
+//                    rDataString = null;
+//            }
+//
+//            System.out.println("Answer Name: " + answerName);
+//            System.out.println("Type: " + type);
+//            System.out.println("Class: " + recordClass);
+//            System.out.println("TTL: " + ttl);
+//            System.out.println("Data Length: " + dataLength);
+//            System.out.println("RDATA: " + rDataString);
+//            dnsAnswerList.add(DnsAnswer.builder()
+//                    .domainName(answerName)
+//                    .answerType((short) type)
+//                    .answerClass((short) recordClass)
+//                    .ttl((short) ttl)
+//                    .dataLength((short) dataLength)
+//                    .rData(rDataString)
+//                    .build());
+//        }
         return DnsData.builder()
                 .dnsHeader(dnsHeader)
                 .dnsQuestionList(dnsQuestionList)
+//                .dnsAnswerList(dnsAnswerList)
                 .build();
     }
 
@@ -110,5 +170,31 @@ public class DnsExtractor {
         flags |= (short) ((dnsHeaderFlags.getZ() << 4) & Z_MASK);
         flags |= (short) (dnsHeaderFlags.getRcode() & RCODE_MASK);
         return flags;
+    }
+
+    public static String parseDomainName(byte[] dnsResponse, int offset) {
+        StringBuilder domainName = new StringBuilder();
+        int length = dnsResponse[offset] & 0xFF;
+
+        while (length > 0) {
+            // Check if the label is a pointer (compression)
+            if ((length & 0xC0) == 0xC0) { // 0xC0 indicates the start of a pointer
+                int pointerOffset = ((length & 0x3F) << 8) | (dnsResponse[offset + 1] & 0xFF);
+                domainName.append(parseDomainName(dnsResponse, pointerOffset));
+                offset += 2; // Pointers are two bytes long
+                return domainName.toString();
+            } else {
+                // Add the label to the domain name
+                domainName.append(new String(dnsResponse, offset + 1, length));
+                offset += length + 1;
+                length = dnsResponse[offset] & 0xFF;
+
+                if (length > 0) {
+                    domainName.append(".");
+                }
+            }
+        }
+
+        return domainName.toString();
     }
 }

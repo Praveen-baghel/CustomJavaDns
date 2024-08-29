@@ -1,10 +1,8 @@
 package com.example.custom_dns.services;
 
-import com.example.custom_dns.DTO.DnsData;
-import com.example.custom_dns.DTO.DnsHeader;
-import com.example.custom_dns.DTO.DnsHeaderFlags;
-import com.example.custom_dns.DTO.DnsQuestion;
+import com.example.custom_dns.DTO.*;
 import com.example.custom_dns.DnsExtractor;
+import com.example.custom_dns.Encoder;
 import com.example.custom_dns.entities.DnsRecord;
 import com.example.custom_dns.stores.DnsStore;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,38 +10,44 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
+import java.io.Serializable;
 import java.net.*;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class DnsService {
     @Autowired
     DnsStore dnsStore;
 
+    @Autowired
+    Encoder encoder;
+
     public DatagramPacket getResponse(DatagramPacket packet) {
         DnsData dnsData = DnsExtractor.extractData(packet);
         DnsHeaderFlags dnsHeaderFlags = dnsData.getDnsHeader().getDnsHeaderFlags();
-        byte[] answers = createAnswersSection(dnsData.getDnsQuestionList());
+        Map<String, Serializable> answersDict = createAnswersSection(dnsData.getDnsQuestionList());
+        byte[] answers = (byte[]) answersDict.get("answers");
+        int anCount = (int) answersDict.get("anCount");
 
         byte[] byteResponse;
         if (answers.length > 0) {
             System.out.println("Resolving query normally !!");
-            byteResponse = resolveNormalQuery(packet, answers);
+            byteResponse = resolveNormalQuery(dnsData, answers, (short) anCount);
         } else if (dnsHeaderFlags.isRecursionDesired()) {
             System.out.println("Resolving query recursively !!");
-            byteResponse = resolveRecursiveQuery(packet);
+            byteResponse = resolveRecursiveQuery(packet, dnsData);
         } else {
             System.out.println("Making error response !!");
-            byteResponse = createErrorResponse(packet, (short) 0);
+            byteResponse = createErrorResponse(dnsData, (short) 2);
         }
 
         return new DatagramPacket(byteResponse, byteResponse.length, packet.getSocketAddress());
 
     }
 
-    public byte[] resolveRecursiveQuery(DatagramPacket packet) {
+    public byte[] resolveRecursiveQuery(DatagramPacket packet, DnsData dnsData) {
         try {
             InetAddress address = InetAddress.getByName("8.8.8.8");
             DatagramPacket responsePacket;
@@ -55,24 +59,24 @@ public class DnsService {
                 responsePacket = new DatagramPacket(bufResponse, bufResponse.length);
                 forwardSocket.receive(responsePacket); // Receive response from upstream DNS server
             }
+            // save records in database
+//            saveRecords(responsePacket);
             return responsePacket.getData();
         } catch (Exception e) {
             System.out.println("Exception: " + e.getMessage());
             System.out.println("Making error response !!");
-            return createErrorResponse(packet, (short) 0);
+            return createErrorResponse(dnsData, (short) 2);
         }
     }
 
-    public byte[] resolveNormalQuery(DatagramPacket packet, byte[] answers) {
+    public byte[] resolveNormalQuery(DnsData dnsData, byte[] answers, short anCount) {
         ByteBuffer byteBuffer = ByteBuffer.allocate(512);
 
-        DnsData dnsData = DnsExtractor.extractData(packet);
         DnsHeader reqDnsHeader = dnsData.getDnsHeader();
         DnsHeaderFlags reqDnsHeaderFlags = dnsData.getDnsHeader().getDnsHeaderFlags();
 
         byte[] questions = createQuestionsSection(dnsData.getDnsQuestionList());
         short questionCount = (short) dnsData.getDnsQuestionList().size();
-        short answersCount = (short) (answers.length / dnsData.getDnsQuestionList().size());
 
         DnsHeaderFlags resDnsHeaderFlags = DnsHeaderFlags.builder()
                 .queryResponse(true)
@@ -88,7 +92,7 @@ public class DnsService {
                 .id(reqDnsHeader.getId())
                 .dnsHeaderFlags(resDnsHeaderFlags)
                 .questionsCount(questionCount)
-                .answersCount(answersCount)
+                .answersCount(anCount)
                 .nsCount((short) 0)
                 .arCount((short) 0)
                 .build();
@@ -99,16 +103,12 @@ public class DnsService {
         byteBuffer.put(answers);
 
         // copy used bytes from buffer into buffResponse
-        final byte[] res = new byte[byteBuffer.position()];
-        byteBuffer.flip();
-        byteBuffer.get(res);
-        return res;
+        return removeExtraBytes(byteBuffer);
     }
 
-    public byte[] createErrorResponse(DatagramPacket packet, short rCode) {
+    public byte[] createErrorResponse(DnsData dnsData, short rCode) {
         ByteBuffer byteBuffer = ByteBuffer.allocate(512);
 
-        DnsData dnsData = DnsExtractor.extractData(packet);
         DnsHeader reqDnsHeader = dnsData.getDnsHeader();
         DnsHeaderFlags reqDnsHeaderFlags = dnsData.getDnsHeader().getDnsHeaderFlags();
 
@@ -141,7 +141,7 @@ public class DnsService {
         // DNS question section (repeat the question in the response)
         byteBuffer.put(questions);
 
-        return byteBuffer.array();
+        return removeExtraBytes(byteBuffer);
     }
 
     public void writeHeaders(ByteBuffer byteBuffer, DnsHeader dnsHeader) {
@@ -159,7 +159,7 @@ public class DnsService {
         DataOutputStream dataStream = new DataOutputStream(byteStream);
         try {
             for (DnsQuestion dnsQuestion : dnsQuestionList) {
-                dataStream.write(encodeDomainName(dnsQuestion.getDomainName()));
+                dataStream.write(encoder.encodeDomainName(dnsQuestion.getDomainName()));
                 dataStream.writeShort(dnsQuestion.getQuestionType());
                 dataStream.writeShort(dnsQuestion.getQuestionClass());
             }
@@ -169,56 +169,55 @@ public class DnsService {
         return byteStream.toByteArray();
     }
 
-    public byte[] createAnswersSection(List<DnsQuestion> dnsQuestionList) {
+    public Map<String, Serializable> createAnswersSection(List<DnsQuestion> dnsQuestionList) {
         ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
         DataOutputStream dataStream = new DataOutputStream(byteStream);
+        int anCount = 0;
         try {
             for (DnsQuestion dnsQuestion : dnsQuestionList) {
                 String domain = dnsQuestion.getDomainName();
-                DnsRecord dnsRecord = dnsStore.getRecord(domain.substring(0, domain.length() - 1), dnsQuestion.getQuestionType());
-                if (dnsRecord == null) {
-                    continue;
-                }
-                dataStream.write(encodeDomainName(dnsQuestion.getDomainName()));
-                dataStream.writeShort(1); // Type A
-                dataStream.writeShort(1); // Class IN
-                dataStream.writeInt(300); // TTL
+                List<DnsRecord> dnsRecordList = dnsStore.getRecords(domain.substring(0, domain.length() - 1), dnsQuestion.getQuestionType());
+                for (DnsRecord dnsRecord : dnsRecordList) {
+                    if (dnsRecord == null) {
+                        continue;
+                    }
+                    dataStream.write(encoder.encodeDomainName(dnsQuestion.getDomainName()));
+                    dataStream.writeShort(dnsRecord.getRecordType()); // Type A
+                    dataStream.writeShort(1); // Class IN
+                    dataStream.writeInt(300); // TTL
 
-                if (dnsRecord.getRecordType() == 1) {
-                    dataStream.writeShort(4); // Length of the IP address
-                    dataStream.write(ipToByteArray(dnsRecord.getRecordValue()));
+                    byte[] rData = encoder.parseToByteArray(dnsRecord.getRecordValue(), dnsRecord.getRecordType());
+                    dataStream.writeShort((short) rData.length); // Length of the RData
+                    dataStream.write(rData);
+                    anCount += 1;
                 }
             }
         } catch (Exception e) {
             System.out.println("Exception: " + e.getMessage());
         }
-        return byteStream.toByteArray();
+        return Map.of("answers", byteStream.toByteArray(), "anCount", anCount);
     }
 
-    public static byte[] encodeDomainName(String domain) {
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        for (String label : domain.split("\\.")) {
-            outputStream.write((byte) label.length());
-            outputStream.writeBytes(label.getBytes(StandardCharsets.UTF_8));
-        }
-        outputStream.write(0); // Terminating null byte
-        return outputStream.toByteArray();
-    }
-
-    public byte[] ipToByteArray(String ipAddress) {
-        String[] segments = ipAddress.split("\\.");
-        if (segments.length != 4) {
-            throw new IllegalArgumentException("Invalid IPv4 address format");
-        }
-        byte[] byteArray = new byte[4];
-        for (int i = 0; i < 4; i++) {
-            try {
-                byteArray[i] = (byte) Integer.parseInt(segments[i]);
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("Invalid segment in IP address", e);
+    public void saveRecords(DatagramPacket packet) {
+        DnsData resDnsData = DnsExtractor.extractData(packet);
+        for (DnsAnswer dnsAnswer : resDnsData.getDnsAnswerList()) {
+            if (dnsAnswer != null && dnsAnswer.getRData() != null && !dnsAnswer.getRData().isEmpty()) {
+                DnsRecord dnsRecord = DnsRecord.builder()
+                        .domain(dnsAnswer.getDomainName())
+                        .recordType(dnsAnswer.getAnswerType())
+                        .recordValue(dnsAnswer.getRData())
+                        .ttl(dnsAnswer.getTtl())
+                        .build();
+                dnsStore.saveRecord(dnsRecord);
             }
         }
-        return byteArray;
+
+    }
+
+    public byte[] removeExtraBytes(ByteBuffer byteBuffer) {
+        final byte[] res = new byte[byteBuffer.position()];
+        byteBuffer.flip();
+        byteBuffer.get(res);
+        return res;
     }
 }
