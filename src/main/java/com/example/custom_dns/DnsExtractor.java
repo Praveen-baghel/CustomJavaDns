@@ -2,10 +2,12 @@ package com.example.custom_dns;
 
 import com.example.custom_dns.DTO.*;
 
+import java.io.Serializable;
 import java.net.DatagramPacket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class DnsExtractor {
     private static final int QR_MASK = 0x8000;
@@ -61,70 +63,88 @@ public class DnsExtractor {
                     .build());
         }
 
-//        List<DnsAnswer> dnsAnswerList = new ArrayList<>();
-//        for (int i = 0; i < anCount; i++) {
-//            String answerName = parseDomainName(a, index);
-//            index += answerName.length() + 2; // Move index after domain name and terminating 0
-//
-//            // Parse the type, class, TTL, and data length
-//            int type = (a[index] << 8) | (a[index + 1] & 0xFF);
-//            int recordClass = (a[index + 2] << 8) | (a[index + 3] & 0xFF);
-//            int ttl = ((a[index + 4] << 24) | (a[index + 5] << 16) |
-//                    (a[index + 6] << 8) | (a[index + 7] & 0xFF));
-//            int dataLength = (a[index + 8] << 8) | (a[index + 9] & 0xFF);
-//            index += 10; // Move index after the header of the resource record
-//
-//            // Extract RDATA
-//            byte[] rData = Arrays.copyOfRange(a, index, index + dataLength);
-//            index += dataLength; // Move index after the RDATA
-//
-//            // Convert RDATA to string based on the type
-//            String rDataString;
-//            switch (type) {
-//                case 1: // A Record (IPv4)
-//                    rDataString = String.format("%d.%d.%d.%d", rData[0] & 0xFF, rData[1] & 0xFF, rData[2] & 0xFF, rData[3] & 0xFF);
-//                    break;
-//                case 28: // AAAA Record (IPv6)
-//                    StringBuilder sb = new StringBuilder();
-//                    for (int j = 0; j < rData.length; j += 2) {
-//                        sb.append(String.format("%02x", rData[j] & 0xFF));
-//                        sb.append(String.format("%02x", rData[j + 1] & 0xFF));
-//                        if (j < rData.length - 2) sb.append(":");
-//                    }
-//                    rDataString = sb.toString();
-//                    break;
-//                case 5: // CNAME Record
-//                    rDataString = parseDomainName(rData, 0);
-//                    break;
-//                case 2: // NS Record
-//                    rDataString = parseDomainName(rData, 0);
-//                    break;
-//                case 16: // TXT Record
-//                    rDataString = new String(rData, 1, rData[0] & 0xFF); // First byte is length of the text
-//                    break;
-//                default:
-//                    rDataString = null;
-//            }
-//
-//            System.out.println("Answer Name: " + answerName);
-//            System.out.println("Type: " + type);
-//            System.out.println("Class: " + recordClass);
-//            System.out.println("TTL: " + ttl);
-//            System.out.println("Data Length: " + dataLength);
-//            System.out.println("RDATA: " + rDataString);
-//            dnsAnswerList.add(DnsAnswer.builder()
-//                    .domainName(answerName)
-//                    .answerType((short) type)
-//                    .answerClass((short) recordClass)
-//                    .ttl((short) ttl)
-//                    .dataLength((short) dataLength)
-//                    .rData(rDataString)
-//                    .build());
-//        }
+        List<DnsAnswer> dnsAnswerList = new ArrayList<>();
+        for (int i = 0; i < anCount; i++) {
+            Map<String, Serializable> domainMap = parseDomainName(a, index);
+            String domainName = (String) domainMap.get("domainName");
+            index = (int) domainMap.get("index");
+            // Parse the type, class, TTL, and data length
+            int type = (a[index++] << 8) | (a[index++] & 0xFF);
+            int recordClass = (a[index++] << 8) | (a[index++] & 0xFF);
+            int ttl = ((a[index++] << 24) | (a[index++] << 16) | (a[index++] << 8) | (a[index++] & 0xFF));
+            int dataLength = (a[index++] << 8) | (a[index++] & 0xFF);
+
+            // Extract RDATA
+            byte[] rData = Arrays.copyOfRange(a, index, index + dataLength);
+            index += dataLength; // Move index after the RDATA
+
+            // Convert RDATA to string based on the type
+            String rDataString;
+            switch (type) {
+                case 1: // A Record (IPv4)
+                    rDataString = String.format("%d.%d.%d.%d", rData[0] & 0xFF, rData[1] & 0xFF, rData[2] & 0xFF, rData[3] & 0xFF);
+                    break;
+                case 28: // AAAA Record (IPv6)
+                    StringBuilder sb = new StringBuilder();
+                    for (int j = 0; j < rData.length; j += 2) {
+                        sb.append(String.format("%02x", rData[j] & 0xFF));
+                        sb.append(String.format("%02x", rData[j + 1] & 0xFF));
+                        if (j < rData.length - 2) sb.append(":");
+                    }
+                    rDataString = sb.toString();
+                    break;
+                case 5: // CNAME Record
+                case 2: // NS Record
+                    StringBuilder s = new StringBuilder();
+                    while (rData[index] != 0) {
+                        int length = rData[index++];
+                        s.append(new String(rData, index, length)).append(".");
+                        index += length;
+                    }
+                    rDataString = s.toString();
+                    break;
+                case 16: // TXT Record
+                    StringBuilder txt = new StringBuilder();
+                    int offset = 0;
+                    while (offset < rData.length) {
+                        // Read the length of the current string
+                        int length = rData[offset] & 0xFF;
+                        offset++;
+                        // Extract the string using the length
+                        String text = new String(rData, offset, length);
+                        txt.append(text);
+                        // Move the offset to the next string (if any)
+                        offset += length;
+                        // Add a space or separator if there are more strings
+                        if (offset < rData.length) {
+                            txt.append(" "); // Change this separator if needed
+                        }
+                    }
+                    rDataString = txt.toString();
+                    break;
+                default:
+                    rDataString = null;
+            }
+
+            System.out.println("Answer Name: " + domainName);
+            System.out.println("Type: " + type);
+            System.out.println("Class: " + recordClass);
+            System.out.println("TTL: " + ttl);
+            System.out.println("Data Length: " + dataLength);
+            System.out.println("RDATA: " + rDataString);
+            dnsAnswerList.add(DnsAnswer.builder()
+                    .domainName(domainName)
+                    .answerType((short) type)
+                    .answerClass((short) recordClass)
+                    .ttl((short) ttl)
+                    .dataLength((short) dataLength)
+                    .rData(rDataString)
+                    .build());
+        }
         return DnsData.builder()
                 .dnsHeader(dnsHeader)
                 .dnsQuestionList(dnsQuestionList)
-//                .dnsAnswerList(dnsAnswerList)
+                .dnsAnswerList(dnsAnswerList)
                 .build();
     }
 
@@ -172,29 +192,33 @@ public class DnsExtractor {
         return flags;
     }
 
-    public static String parseDomainName(byte[] dnsResponse, int offset) {
+    public static Map<String, Serializable> parseDomainName(byte[] data, int offset) {
         StringBuilder domainName = new StringBuilder();
-        int length = dnsResponse[offset] & 0xFF;
+        int length = data[offset] & 0xFF; // Length of the first label
 
         while (length > 0) {
-            // Check if the label is a pointer (compression)
-            if ((length & 0xC0) == 0xC0) { // 0xC0 indicates the start of a pointer
-                int pointerOffset = ((length & 0x3F) << 8) | (dnsResponse[offset + 1] & 0xFF);
-                domainName.append(parseDomainName(dnsResponse, pointerOffset));
-                offset += 2; // Pointers are two bytes long
-                return domainName.toString();
+            if ((length & 0xC0) == 0xC0) {
+                // Pointer to a previous domain name
+                int pointer = ((length & 0x3F) << 8) | (data[offset + 1] & 0xFF);
+                String domainName1 = (String) parseDomainName(data, pointer).get("domainName"); // Recursively resolve the pointer
+                domainName = new StringBuilder(domainName1);
+                domainName.append(".");
+                offset += 2;
+                break;
             } else {
-                // Add the label to the domain name
-                domainName.append(new String(dnsResponse, offset + 1, length));
-                offset += length + 1;
-                length = dnsResponse[offset] & 0xFF;
-
-                if (length > 0) {
-                    domainName.append(".");
-                }
+                // Extract the label
+                offset++;
+                domainName.append(new String(data, offset, length)).append(".");
+                offset += length;
             }
+            length = data[offset] & 0xFF; // Next label length
         }
 
-        return domainName.toString();
+        // Remove the trailing dot
+        if (!domainName.isEmpty()) {
+            domainName.setLength(domainName.length() - 1);
+        }
+        return Map.of("domainName", domainName.toString(), "index", offset);
     }
+
 }

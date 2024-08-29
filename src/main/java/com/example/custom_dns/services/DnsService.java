@@ -13,6 +13,7 @@ import java.io.DataOutputStream;
 import java.io.Serializable;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -59,8 +60,10 @@ public class DnsService {
                 responsePacket = new DatagramPacket(bufResponse, bufResponse.length);
                 forwardSocket.receive(responsePacket); // Receive response from upstream DNS server
             }
+
+            System.out.println(Arrays.toString(responsePacket.getData()));
             // save records in database
-//            saveRecords(responsePacket);
+            saveRecords(responsePacket);
             return responsePacket.getData();
         } catch (Exception e) {
             System.out.println("Exception: " + e.getMessage());
@@ -184,7 +187,7 @@ public class DnsService {
                     dataStream.write(encoder.encodeDomainName(dnsQuestion.getDomainName()));
                     dataStream.writeShort(dnsRecord.getRecordType()); // Type A
                     dataStream.writeShort(1); // Class IN
-                    dataStream.writeInt(300); // TTL
+                    dataStream.writeInt(dnsRecord.getTtl()); // TTL
 
                     byte[] rData = encoder.parseToByteArray(dnsRecord.getRecordValue(), dnsRecord.getRecordType());
                     dataStream.writeShort((short) rData.length); // Length of the RData

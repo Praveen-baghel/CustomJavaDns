@@ -52,7 +52,7 @@ public class Encoder {
     }
 
     public byte[] parseToByteArray(String rDataString, int type) {
-        byte[] rDataBytes = switch (type) {
+        return switch (type) {
             case 1 -> // A Record (IPv4)
                     encodeARecord(rDataString);
             case 28 -> // AAAA Record (IPv6)
@@ -63,6 +63,5 @@ public class Encoder {
                     encodeTXTRecord(rDataString);
             default -> throw new UnsupportedOperationException("Unsupported record type: " + type);
         };
-        return rDataBytes;
     }
 }
