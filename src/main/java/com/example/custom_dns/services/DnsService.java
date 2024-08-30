@@ -5,6 +5,7 @@ import com.example.custom_dns.DnsExtractor;
 import com.example.custom_dns.Encoder;
 import com.example.custom_dns.entities.DnsRecord;
 import com.example.custom_dns.stores.DnsStore;
+import com.example.custom_dns.stores.RedisStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -21,6 +22,9 @@ import java.util.Map;
 public class DnsService {
     @Autowired
     DnsStore dnsStore;
+
+    @Autowired
+    RedisStore redisStore;
 
     @Autowired
     Encoder encoder;
@@ -177,7 +181,7 @@ public class DnsService {
         try {
             for (DnsQuestion dnsQuestion : dnsQuestionList) {
                 String domain = dnsQuestion.getDomainName();
-                List<DnsRecord> dnsRecordList = dnsStore.getRecords(domain.substring(0, domain.length() - 1), dnsQuestion.getQuestionType());
+                List<DnsRecord> dnsRecordList = redisStore.resolveDomain(domain.substring(0, domain.length() - 1), dnsQuestion.getQuestionType());
                 for (DnsRecord dnsRecord : dnsRecordList) {
                     if (dnsRecord == null) {
                         continue;
