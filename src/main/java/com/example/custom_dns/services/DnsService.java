@@ -63,10 +63,13 @@ public class DnsService {
                 byte[] bufResponse = new byte[512];
                 responsePacket = new DatagramPacket(bufResponse, bufResponse.length);
                 forwardSocket.receive(responsePacket); // Receive response from upstream DNS server
+
+                byte[] trimmedResponse = Arrays.copyOf(bufResponse, responsePacket.getLength());
+
+                // save records in database
+                saveRecords(responsePacket);
+                return trimmedResponse;
             }
-            // save records in database
-            saveRecords(responsePacket);
-            return responsePacket.getData();
         } catch (Exception e) {
             System.out.println("Exception: " + e.getMessage());
             System.out.println("Making error response !!");
